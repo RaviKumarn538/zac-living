@@ -60,10 +60,30 @@ main { min-height: 72vh; }
   padding: 12px 18px;
 }
 
+.nav-content {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  width: 100%;
+}
+
 .brand {
   color: var(--primary) !important;
   font-weight: 900;
   letter-spacing: 0;
+}
+
+.main-nav-links {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  gap: 4px;
+  justify-content: center;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
 }
 
 .nav-link {
@@ -82,6 +102,7 @@ main { min-height: 72vh; }
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
 .user-pill {
@@ -1207,27 +1228,24 @@ main { min-height: 72vh; }
     font-size: 1.08rem;
   }
 
-  .navbar-toggler {
-    border: 1px solid var(--line) !important;
-    border-radius: 10px;
-    padding: 5px 8px;
+  .nav-content {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr;
   }
 
-  .navbar-collapse {
-    margin-top: 10px;
-    border-top: 1px solid var(--line);
-    padding-top: 10px;
-  }
-
-  .nav-link {
-    padding: 10px 8px !important;
+  .main-nav-links {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    order: 2;
   }
 
   .nav-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
-    margin-top: 8px;
+    order: 3;
   }
 
   .nav-actions form,
@@ -1238,6 +1256,13 @@ main { min-height: 72vh; }
   .user-pill {
     text-align: center;
     width: 100%;
+  }
+
+  .nav-link {
+    background: rgba(255, 255, 255, 0.66);
+    border: 1px solid var(--line);
+    padding: 10px 8px !important;
+    text-align: center;
   }
 
   .hero-section {
