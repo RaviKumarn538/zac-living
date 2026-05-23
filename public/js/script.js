@@ -48,7 +48,7 @@
             }
 
             rail.addEventListener('touchstart', pause, { passive: true })
-            rail.addEventListener('pointerdown', pause)
+            rail.addEventListener('pointerdown', pause, { passive: true })
             rail._autoTimer = window.setInterval(moveRail, 2800)
         })
     }
