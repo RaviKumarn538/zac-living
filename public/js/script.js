@@ -56,6 +56,79 @@
     setupRoomRails()
     mobileRail.addEventListener('change', setupRoomRails)
 
+    const setupHomeRoomCarousel = () => {
+        document.querySelectorAll('[data-room-carousel]').forEach((rail) => {
+            if (rail.dataset.homeCarousel === 'ready' || rail.scrollWidth <= rail.clientWidth || prefersReducedMotion) return
+            rail.dataset.homeCarousel = 'ready'
+
+            let isPaused = false
+            const getStep = () => {
+                const firstCard = rail.querySelector('.room-card')
+                return firstCard ? firstCard.getBoundingClientRect().width + 24 : rail.clientWidth * 0.78
+            }
+
+            const rotate = () => {
+                if (isPaused || rail.matches(':hover')) return
+                const nearEnd = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 12
+                rail.scrollTo({ left: nearEnd ? 0 : rail.scrollLeft + getStep(), behavior: 'smooth' })
+            }
+
+            const pause = () => {
+                isPaused = true
+                window.clearTimeout(rail._homeResumeTimer)
+                rail._homeResumeTimer = window.setTimeout(() => {
+                    isPaused = false
+                }, 3500)
+            }
+
+            rail.addEventListener('touchstart', pause, { passive: true })
+            rail.addEventListener('pointerdown', pause, { passive: true })
+            rail.addEventListener('focusin', pause)
+            rail._homeCarouselTimer = window.setInterval(rotate, 3200)
+        })
+    }
+
+    setupHomeRoomCarousel()
+    window.addEventListener('resize', setupHomeRoomCarousel)
+
+    const setupHomeHeroRotator = () => {
+        const hero = document.querySelector('[data-hero-rotator]')
+        const dataNode = document.querySelector('#homeHeroSlides')
+        if (!hero || !dataNode || prefersReducedMotion) return
+
+        let slides = []
+        try {
+            slides = JSON.parse(dataNode.textContent || '[]')
+        } catch (error) {
+            slides = []
+        }
+
+        const frames = Array.from(hero.querySelectorAll('.home-hero-frame'))
+        if (slides.length <= frames.length || !frames.length) return
+
+        let index = 0
+        const rotateHero = () => {
+            index = (index + 1) % slides.length
+            frames.forEach((frame, frameIndex) => {
+                const slide = slides[(index + frameIndex) % slides.length]
+                const image = frame.querySelector('img')
+                if (!slide || !image || image.src === slide.photo) return
+
+                frame.classList.add('is-changing')
+                window.setTimeout(() => {
+                    image.src = slide.photo
+                    image.alt = slide.title || 'Featured room'
+                    if (frame.tagName === 'A') frame.href = slide.href || '/rooms'
+                    frame.classList.remove('is-changing')
+                }, 180)
+            })
+        }
+
+        window.setInterval(rotateHero, 1000)
+    }
+
+    setupHomeHeroRotator()
+
     const setupFilterSheet = () => {
         const sheet = document.querySelector('#mobileFilterSheet')
         const openButtons = document.querySelectorAll('[data-filter-open]')

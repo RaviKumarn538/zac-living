@@ -1,35 +1,83 @@
 <% layout('/layouts/boilerplate') -%>
 
-<section class="discovery-hero">
-  <div class="container max-w-7xl px-4 sm:px-6 lg:px-8">
-    <div class="discovery-copy max-w-4xl">
-      <span class="eyebrow">Bhopal student housing</span>
-      <h1>Find student PGs, rooms, and flats in Bhopal with real photos and video tours.</h1>
-      <p>Zac.Living helps students compare room options by budget, area, food, facilities, rules, and availability. Explore first, sign up only when you want to save, request a visit, or get matched.</p>
-    </div>
+<%
+  const heroRooms = (featuredRooms || []).slice(0, 3);
+  const heroSlides = (featuredRooms || []).map((room) => ({
+    href: `/rooms/${room.id}`,
+    photo: room.photo,
+    title: room.title,
+  }));
+  const categoryRooms = (featuredRooms || []).slice(0, 4);
+  const fallbackPhoto = heroRooms[0] ? heroRooms[0].photo : "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1600&q=80";
+%>
 
-    <%- include("rooms/search_form", { query }) %>
-
-    <div class="category-scroll" aria-label="Popular room categories">
-      <a href="/rooms?area=MP+Nagar" class="category-chip">MP Nagar</a>
-      <a href="/rooms?budget=8000" class="category-chip">Under Rs. 8k</a>
-      <a href="/rooms?category=Girls" class="category-chip">Girls PG</a>
-      <a href="/rooms?category=Boys" class="category-chip">Boys PG</a>
-      <a href="/rooms?food=Yes" class="category-chip">With food</a>
-      <a href="/rooms?video=Yes" class="category-chip">Video tour</a>
-    </div>
+<section class="home-announcement-strip" aria-label="Zac Living highlights">
+  <div class="home-announcement-track">
+    <span>Verified student rooms</span>
+    <span>Real photos and video tours</span>
+    <span>Visit request support</span>
+    <span>Bhopal housing made simple</span>
   </div>
 </section>
 
-<section class="container section-block max-w-7xl px-4 sm:px-6 lg:px-8">
+<section class="home-image-hero" data-hero-rotator aria-label="Featured room photography">
+  <% if (heroRooms.length) { %>
+    <% heroRooms.forEach((room, index) => { %>
+      <a href="/rooms/<%= room.id %>" class="home-hero-frame <%= index === 0 ? 'is-primary' : 'is-secondary' %>">
+        <img src="<%= room.photo %>" alt="<%= room.title %>">
+      </a>
+    <% }) %>
+  <% } else { %>
+    <div class="home-hero-frame is-primary">
+      <img src="<%= fallbackPhoto %>" alt="Student room interior">
+    </div>
+  <% } %>
+</section>
+
+<script type="application/json" id="homeHeroSlides"><%- JSON.stringify(heroSlides).replace(/</g, "\\u003c") %></script>
+
+<section class="home-marketing-intro">
+  <div class="container max-w-7xl px-4 sm:px-6 lg:px-8">
+    <span class="eyebrow">Zac.Living rooms</span>
+    <h1>Browse real rooms first. Choose with confidence later.</h1>
+    <p>Compare photos, rent, food, room type, area, availability, and video tours in a clean student-first experience.</p>
+  </div>
+</section>
+
+<section class="container home-category-section max-w-7xl px-4 sm:px-6 lg:px-8">
   <div class="section-heading flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div>
-      <span class="eyebrow"><%= isPersonalized ? "Based on your requirement" : "Start exploring" %></span>
-      <h2><%= isPersonalized ? "Recommended rooms for you" : "Popular homes for students" %></h2>
+      <span class="eyebrow">What's new</span>
+      <h2>Explore by room mood</h2>
     </div>
-    <a href="/rooms" class="text-link">See all rooms</a>
+    <a href="/rooms" class="text-link">View rooms</a>
   </div>
-  <div class="room-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
+
+  <div class="home-category-grid">
+    <% const categoryLabels = ["New rooms", "Video tour stays", "Food options", "Budget friendly"]; %>
+    <% categoryLabels.forEach((label, index) => { const room = categoryRooms[index] || categoryRooms[0]; %>
+      <a href="/rooms" class="home-category-card">
+        <img src="<%= room ? room.photo : fallbackPhoto %>" alt="<%= label %>">
+        <span><%= label %></span>
+      </a>
+    <% }) %>
+  </div>
+</section>
+
+<section class="container home-room-section max-w-7xl px-4 sm:px-6 lg:px-8">
+  <div class="section-heading flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <span class="eyebrow"><%= isPersonalized ? "Picked for you" : "Fresh stays" %></span>
+      <h2><%= isPersonalized ? "Rooms changing for your needs" : "Rooms that keep changing" %></h2>
+    </div>
+    <a href="/rooms" class="text-link">Browse all rooms</a>
+  </div>
+
+  <% if (!featuredRooms.length) { %>
+    <div class="empty-state">Rooms will appear here after listings are published.</div>
+  <% } %>
+
+  <div class="home-room-showcase" data-room-carousel aria-label="Rotating room showcase">
     <% featuredRooms.forEach((room) => { %>
       <%- include("partials_room_card", { room }) %>
     <% }) %>
@@ -37,3 +85,24 @@
   </div>
 </section>
 
+<section class="home-trust-row" aria-label="Zac Living service points">
+  <div class="container max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="home-trust-grid">
+      <div>
+        <i class="fa-solid fa-camera"></i>
+        <h3>Real photos</h3>
+        <p>See the room before you shortlist.</p>
+      </div>
+      <div>
+        <i class="fa-solid fa-circle-play"></i>
+        <h3>Video tours</h3>
+        <p>Understand layout and space faster.</p>
+      </div>
+      <div>
+        <i class="fa-solid fa-shield-heart"></i>
+        <h3>Student focused</h3>
+        <p>Area, food, rent, and availability in one place.</p>
+      </div>
+    </div>
+  </div>
+</section>

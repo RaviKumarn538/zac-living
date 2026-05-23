@@ -354,10 +354,11 @@ app.get(
   asyncHandler(async (req, res) => {
     const rawRooms = await Room.find({ published: true }).sort({ createdAt: -1 });
     const rooms = decorateRooms(rawRooms, req.currentUser);
+    const featuredRooms = [...rooms].sort(() => Math.random() - 0.5).slice(0, 8);
 
     res.render("home", {
       query: {},
-      featuredRooms: rooms.slice(0, 6),
+      featuredRooms,
       isPersonalized: Boolean(req.currentUser && req.currentUser.role === "student"),
     });
   })
