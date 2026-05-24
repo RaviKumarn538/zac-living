@@ -11,6 +11,13 @@ SESSION_SECRET=<long-random-secret>
 ADMIN_EMAIL=<your-private-admin-email>
 ADMIN_PASSWORD=<strong-private-admin-password>
 WHATSAPP_NUMBER=919301942717
+
+# Optional Google Sheets backup for new admin listings
+GOOGLE_SHEETS_ENABLED=false
+GOOGLE_SHEET_ID=<spreadsheet-id>
+GOOGLE_SHEET_TAB=Listings
+GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
+GOOGLE_PRIVATE_KEY=<service-account-private-key>
 ```
 
 Do not commit `.env` to GitHub.
@@ -48,4 +55,20 @@ Admin login route:
 
 ```txt
 /zac-admin
+```
+
+## Google Sheets Listing Backup
+
+To save new admin listings into a Google Sheet:
+
+1. Create a Google Cloud service account and generate a JSON key.
+2. Create a Google Sheet with a tab named `Listings`.
+3. Share the Sheet with the service account email as an editor.
+4. Add the Google env vars in Render.
+5. Set `GOOGLE_SHEETS_ENABLED=true`.
+
+Recommended Sheet header row:
+
+```txt
+Created At | Listing ID | Title | Owner Name | Owner Contact | Owner Address | Area | Landmark | Rent | Deposit | Room Type | Category | Food | Availability | Published | Video URL | Description
 ```

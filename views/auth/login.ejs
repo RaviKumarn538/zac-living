@@ -7,7 +7,7 @@
     <% if (error) { %><div class="alert alert-danger"><%= error %></div><% } %>
 
     <label for="phone">Mobile/WhatsApp number</label>
-    <input id="phone" name="phone" inputmode="tel" value="<%= form.phone || '' %>" required placeholder="Example: 9876543210">
+    <input id="phone" name="phone" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" value="<%= form.phone || '' %>" required title="Enter exactly 10 digits" placeholder="Example: 9876543210">
 
     <label for="password">Password</label>
     <input id="password" name="password" type="password" required placeholder="Enter your account password">

@@ -1,7 +1,7 @@
 <% layout('/layouts/boilerplate') -%>
 
-<section class="container detail-layout max-w-7xl px-4 py-5 sm:px-6 lg:grid lg:grid-cols-[1.05fr_0.95fr] lg:gap-7 lg:px-8">
-  <div class="min-w-0">
+<section class="container room-detail-page max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+  <div class="detail-gallery">
     <div class="gallery-main">
       <img src="<%= room.photos[0] %>" alt="<%= room.title %>">
       <% if (room.videoUrl) { %>
@@ -11,23 +11,16 @@
         </a>
       <% } %>
     </div>
-    <% if (room.videoUrl) { %>
-      <a href="<%= room.videoUrl %>" target="_blank" rel="noopener" class="video-tour-panel">
-        <i class="fa-solid fa-play"></i>
-        <div>
-          <strong>Video/vlog tour available</strong>
-          <span>Watch this room before requesting a visit.</span>
-        </div>
-      </a>
+    <% if (room.photos.length > 1) { %>
+      <div class="gallery-scroll" aria-label="Room photos">
+        <% room.photos.slice(1).forEach((photo, index) => { %>
+          <img src="<%= photo %>" alt="<%= room.title %> photo <%= index + 2 %>">
+        <% }) %>
+      </div>
     <% } %>
-    <div class="gallery-strip grid grid-cols-2 gap-2 sm:grid-cols-3">
-      <% room.photos.slice(1).forEach((photo) => { %>
-        <img src="<%= photo %>" alt="<%= room.title %> photo">
-      <% }) %>
-    </div>
   </div>
 
-  <div class="detail-card min-w-0">
+  <div class="detail-card min-w-0 room-detail-card">
     <div class="room-card-top flex flex-wrap items-center justify-between gap-2">
       <span class="status-badge <%= room.availability.toLowerCase().replaceAll(' ', '-') %>"><%= room.availability %></span>
       <% if (room.videoUrl) { %><a class="video-badge" href="<%= room.videoUrl %>" target="_blank" rel="noopener"><i class="fa-solid fa-play"></i> Video/vlog tour</a><% } %>
@@ -35,7 +28,7 @@
     <h1 class="break-words"><%= room.title %></h1>
     <p class="detail-rent">Rs. <%= room.rent.toLocaleString("en-IN") %> / month | Deposit Rs. <%= room.deposit.toLocaleString("en-IN") %></p>
     <p class="muted"><i class="fa-solid fa-location-dot"></i> <%= room.area %>, <%= room.landmark %></p>
-    <p><%= room.description %></p>
+    <p class="detail-description"><%= room.description %></p>
 
     <div class="detail-grid grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div><strong>Category</strong><span><%= room.category %></span></div>
@@ -46,17 +39,32 @@
       <div><strong>Distance</strong><span><%= room.distanceNotes %></span></div>
     </div>
 
-    <h2>Facilities</h2>
-    <div class="facility-list flex flex-wrap gap-2">
-      <% room.facilities.forEach((facility) => { %><span><%= facility %></span><% }) %>
-    </div>
+    <section class="detail-section">
+      <h2>Facilities</h2>
+      <div class="facility-list flex flex-wrap gap-2">
+        <% room.facilities.forEach((facility) => { %><span><%= facility %></span><% }) %>
+      </div>
+    </section>
 
-    <h2>Rules</h2>
-    <ul class="rule-list">
-      <% room.rules.forEach((rule) => { %><li><%= rule %></li><% }) %>
-    </ul>
+    <% if (room.nearbyPlaces && room.nearbyPlaces.length) { %>
+      <section class="detail-section">
+        <h2>Nearby within 1 km</h2>
+        <div class="nearby-list">
+          <% room.nearbyPlaces.forEach((place) => { %>
+            <div><i class="fa-solid fa-location-dot"></i><span><%= place %></span></div>
+          <% }) %>
+        </div>
+      </section>
+    <% } %>
 
-    <div class="detail-actions grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <section class="detail-section">
+      <h2>Rules</h2>
+      <ul class="rule-list">
+        <% room.rules.forEach((rule) => { %><li><%= rule %></li><% }) %>
+      </ul>
+    </section>
+
+    <div class="detail-actions">
       <% if (room.videoUrl) { %>
         <a href="<%= room.videoUrl %>" target="_blank" rel="noopener" class="btn btn-primary video-action-btn w-full">
           <i class="fa-solid fa-play"></i> Watch Video Tour

@@ -4,7 +4,7 @@
   <div>
     <span class="eyebrow">Full room list</span>
     <h1>All rooms, line by line.</h1>
-    <p>Review every available room in a clean vertical list. Open details, save, or request a visit from one place.</p>
+    <p>Review every available room in a clean vertical list. Tap any room to open photos, nearby places, rules, and visit options.</p>
   </div>
   <a href="/rooms" class="btn btn-outline-primary">Back to filters</a>
 </section>
@@ -44,15 +44,7 @@
           </div>
 
           <div class="room-list-actions">
-            <a href="/rooms/<%= room.id %>" class="btn btn-primary btn-sm">View Details</a>
-            <% if (currentUser && currentUser.role === "student") { %>
-              <form method="post" action="/rooms/<%= room.id %>/favorite">
-                <button class="btn btn-outline-primary btn-sm" type="submit"><%= room.isFavorite ? "Saved" : "Save" %></button>
-              </form>
-              <form method="post" action="/rooms/<%= room.id %>/visit">
-                <button class="btn btn-outline-primary btn-sm" type="submit">Request Visit</button>
-              </form>
-            <% } %>
+            <a href="/rooms/<%= room.id %>" class="room-list-open">Tap to view details</a>
             <% if (currentUser && currentUser.role === "admin") { %>
               <a href="/admin/rooms/<%= room.id %>/edit" class="btn btn-outline-primary btn-sm">Edit Listing</a>
             <% } %>

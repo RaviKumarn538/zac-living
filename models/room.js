@@ -12,6 +12,7 @@ const roomSchema = new mongoose.Schema(
     food: { type: String, enum: ["Yes", "No"], required: true },
     foodDetails: String,
     facilities: [String],
+    nearbyPlaces: [String],
     rules: [String],
     utilities: String,
     availability: {
@@ -19,7 +20,9 @@ const roomSchema = new mongoose.Schema(
       enum: ["Available", "Few beds left", "Full"],
       default: "Available",
     },
+    ownerName: { type: String, default: "" },
     ownerContact: { type: String, required: true },
+    ownerAddress: { type: String, default: "" },
     published: { type: Boolean, default: true },
     videoUrl: String,
     photos: [String],

@@ -84,6 +84,9 @@
     <label for="facilities">Facilities, one per line</label>
     <textarea id="facilities" name="room[facilities]" rows="4"><%= room.facilities ? room.facilities.join("\n") : "" %></textarea>
 
+    <label for="nearbyPlaces">Nearby places within 1 km, one per line</label>
+    <textarea id="nearbyPlaces" name="room[nearbyPlaces]" rows="4" placeholder="Example: Market - 700 m&#10;Bus stop - 300 m&#10;Grocery store - 200 m"><%= room.nearbyPlaces ? room.nearbyPlaces.join("\n") : "" %></textarea>
+
     <label for="rules">Rules, one per line</label>
     <textarea id="rules" name="room[rules]" rows="4"><%= room.rules ? room.rules.join("\n") : "" %></textarea>
 
@@ -96,8 +99,14 @@
     <label for="distanceNotes">Distance from coaching/college</label>
     <textarea id="distanceNotes" name="room[distanceNotes]" rows="3"><%= room.distanceNotes || '' %></textarea>
 
+    <label for="ownerName">Owner name</label>
+    <input id="ownerName" name="room[ownerName]" value="<%= room.ownerName || '' %>" required>
+
     <label for="ownerContact">Internal owner contact number</label>
     <input id="ownerContact" name="room[ownerContact]" value="<%= room.ownerContact || '' %>" required>
+
+    <label for="ownerAddress">Owner/property full address</label>
+    <textarea id="ownerAddress" name="room[ownerAddress]" rows="3" required><%= room.ownerAddress || '' %></textarea>
 
     <label for="description">Short description</label>
     <textarea id="description" name="room[description]" rows="4"><%= room.description || '' %></textarea>

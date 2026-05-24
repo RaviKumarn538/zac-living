@@ -11,11 +11,11 @@
     <div class="form-row grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div>
         <label for="name">Full name</label>
-        <input id="name" name="name" value="<%= user.name %>" required>
+        <input id="name" name="name" value="<%= user.name %>" required pattern="[A-Za-z ]{2,60}" title="Use letters and spaces only">
       </div>
       <div>
         <label for="phone">Mobile/WhatsApp number</label>
-        <input id="phone" name="phone" value="<%= user.phone %>" required>
+        <input id="phone" name="phone" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" value="<%= user.phone %>" required title="Enter exactly 10 digits">
       </div>
     </div>
 

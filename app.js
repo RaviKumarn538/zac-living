@@ -11,6 +11,7 @@ const { MongoStore } = require("connect-mongo");
 const User = require("./models/user");
 const Room = require("./models/room");
 const VisitRequest = require("./models/visitRequest");
+const { appendListingToSheet } = require("./utils/googleSheets");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -135,6 +136,7 @@ const demoRooms = [
     food: "Yes",
     foodDetails: "Two meals plus breakfast, vegetarian menu, Sunday special dinner.",
     facilities: ["Wi-Fi", "Food", "Laundry", "Study Table", "Water Purifier"],
+    nearbyPlaces: ["DB Mall - 1.1 km", "MP Nagar market - 800 m", "Coaching hub - 1.2 km", "Bus stop - 350 m", "Medical store - 450 m"],
     rules: ["No smoking", "Entry before 10:30 PM", "ID verification required"],
     utilities: "Electricity extra by meter, RO water included, high-speed Wi-Fi included.",
     availability: "Available",
@@ -161,6 +163,7 @@ const demoRooms = [
     food: "Yes",
     foodDetails: "Breakfast and dinner included, lunch available on request.",
     facilities: ["Wi-Fi", "Food", "Security", "Laundry", "Power Backup"],
+    nearbyPlaces: ["AIIMS Road - 900 m", "Daily needs stores - 250 m", "Bus stop - 400 m", "Pharmacy - 500 m", "Food stalls - 300 m"],
     rules: ["Visitors in common area only", "Entry before 9:30 PM", "No loud music"],
     utilities: "Water and Wi-Fi included, electricity fixed Rs. 600/month.",
     availability: "Few beds left",
@@ -186,6 +189,7 @@ const demoRooms = [
     food: "No",
     foodDetails: "Kitchen available, tiffin providers nearby.",
     facilities: ["Wi-Fi", "Kitchen", "Parking", "Water Purifier"],
+    nearbyPlaces: ["10 No. Market - 1 km", "Grocery store - 300 m", "Cafe lane - 700 m", "Bus stop - 600 m", "Coaching centers - 2 km"],
     rules: ["Keep shared spaces clean", "No parties", "Rent due by 5th"],
     utilities: "Electricity and water split between flatmates, Wi-Fi included.",
     availability: "Available",
@@ -212,6 +216,18 @@ function isBcryptHash(value) {
 
 function cleanPhone(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function isValidPersonName(value) {
+  return /^[A-Za-z ]{2,60}$/.test(String(value || "").trim());
+}
+
+function isValidMobileNumber(value) {
+  return /^\d{10}$/.test(String(value || ""));
+}
+
+function isGmailAddress(value) {
+  return /^[A-Za-z0-9._%+-]+@gmail\.com$/i.test(String(value || "").trim());
 }
 
 async function getCurrentUser(req) {
@@ -254,6 +270,17 @@ function calculateMatch(room, student = {}) {
   return { score, label: score >= 75 ? "Best Match" : score >= 45 ? "Good Match" : "Basic Match" };
 }
 
+function sanitizeRoomForViewer(room, user) {
+  const payload = room.toObject();
+  const isAdmin = Boolean(user && user.role === "admin");
+  if (!isAdmin) {
+    delete payload.ownerName;
+    delete payload.ownerContact;
+    delete payload.ownerAddress;
+  }
+  return payload;
+}
+
 function decorateRooms(roomList, user, query = {}) {
   return roomList
     .filter((room) => {
@@ -269,7 +296,7 @@ function decorateRooms(roomList, user, query = {}) {
     .map((room) => {
       const favoriteIds = user && user.favorites ? user.favorites.map((favorite) => String(favorite._id || favorite)) : [];
       return {
-        ...room.toObject(),
+        ...sanitizeRoomForViewer(room, user),
         id: String(room._id),
         photo: room.photos[0],
         match: calculateMatch(room, user && user.role === "student" ? user : {}),
@@ -423,8 +450,11 @@ app.post(
     if (!form.name || !form.phone || !form.password) {
       return res.status(400).render("auth/signup", { error: "Name, WhatsApp number, and password are required.", form });
     }
-    if (form.phone.length < 10) {
-      return res.status(400).render("auth/signup", { error: "Please enter a valid WhatsApp number.", form });
+    if (!isValidPersonName(form.name)) {
+      return res.status(400).render("auth/signup", { error: "Name should contain only letters and spaces.", form });
+    }
+    if (!isValidMobileNumber(form.phone)) {
+      return res.status(400).render("auth/signup", { error: "Mobile number should be exactly 10 digits.", form });
     }
     if (form.password.length < 6) {
       return res.status(400).render("auth/signup", { error: "Password must be at least 6 characters.", form });
@@ -497,6 +527,12 @@ app.post(
   "/login",
   asyncHandler(async (req, res) => {
     const phone = cleanPhone(req.body.phone);
+    if (!isValidMobileNumber(phone)) {
+      return res.status(400).render("auth/login", {
+        error: "Mobile number should be exactly 10 digits.",
+        form: { phone },
+      });
+    }
     const user = await User.findOne({ phone, role: "student" });
     let isPasswordValid = false;
 
@@ -524,13 +560,20 @@ app.get("/zac-admin", (req, res) => res.render("auth/admin-login", { error: null
 app.post(
   "/zac-admin",
   asyncHandler(async (req, res) => {
-    const user = await User.findOne({ email: req.body.email, role: "admin" });
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (!isGmailAddress(email)) {
+      return res.status(400).render("auth/admin-login", {
+        error: "Please enter a valid Gmail address.",
+        form: { email },
+      });
+    }
+    const user = await User.findOne({ email, role: "admin" });
     const isPasswordValid = Boolean(user && (await bcrypt.compare(req.body.password, user.password)));
 
     if (!isPasswordValid) {
       return res.status(401).render("auth/admin-login", {
         error: "Invalid admin credentials.",
-        form: { email: req.body.email },
+        form: { email },
       });
     }
 
@@ -641,9 +684,23 @@ app.post(
   "/profile",
   requireRole("student"),
   asyncHandler(async (req, res) => {
-    Object.assign(req.currentUser, {
-      name: req.body.name,
+    const profileForm = {
+      name: String(req.body.name || "").trim(),
       phone: cleanPhone(req.body.phone),
+    };
+    if (!isValidPersonName(profileForm.name) || !isValidMobileNumber(profileForm.phone)) {
+      const savedIds = req.currentUser.favorites.map((room) => room._id);
+      const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true });
+      return res.status(400).render("profile", {
+        user: { ...req.currentUser.toObject(), ...profileForm },
+        savedRooms: decorateRooms(savedRoomsRaw, req.currentUser),
+        error: !isValidPersonName(profileForm.name) ? "Name should contain only letters and spaces." : "Mobile number should be exactly 10 digits.",
+      });
+    }
+
+    Object.assign(req.currentUser, {
+      name: profileForm.name,
+      phone: profileForm.phone,
       gender: req.body.gender,
       occupation: req.body.occupation,
       institute: req.body.institute,
@@ -664,14 +721,38 @@ app.get(
   "/admin",
   requireRole("admin"),
   asyncHandler(async (req, res) => {
+    const filters = {
+      search: (req.query.search || "").trim(),
+      availability: req.query.availability || "",
+      published: req.query.published || "",
+      category: req.query.category || "",
+    };
+    const roomFilter = {};
+    if (filters.availability) roomFilter.availability = filters.availability;
+    if (filters.category) roomFilter.category = filters.category;
+    if (filters.published === "published") roomFilter.published = true;
+    if (filters.published === "hidden") roomFilter.published = false;
+    if (filters.search) {
+      const searchRegex = new RegExp(filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      roomFilter.$or = [
+        { title: searchRegex },
+        { area: searchRegex },
+        { landmark: searchRegex },
+        { ownerName: searchRegex },
+        { ownerContact: searchRegex },
+        { ownerAddress: searchRegex },
+      ];
+    }
+
     const [rawRooms, rawStudents, requests] = await Promise.all([
-      Room.find({}).sort({ createdAt: -1 }),
+      Room.find(roomFilter).sort({ createdAt: -1 }),
       User.find({ role: "student" }).sort({ createdAt: -1 }),
       VisitRequest.find({}).populate("room").populate("student").sort({ createdAt: -1 }),
     ]);
+    const allRooms = await Room.find({});
     const rooms = decorateRooms(rawRooms, req.currentUser);
     const students = rawStudents.map((student) => {
-      const bestMatch = decorateRooms(rawRooms.filter((room) => room.published), student)[0];
+      const bestMatch = decorateRooms(allRooms.filter((room) => room.published), student)[0];
       return {
         ...student.toObject(),
         id: String(student._id),
@@ -682,9 +763,13 @@ app.get(
     res.render("dashboards/admin", {
       rooms,
       students,
+      filters,
+      dbStatus: mongoose.connection.readyState === 1 ? "Connected" : "Not connected",
       stats: {
-        totalRooms: rawRooms.length,
-        publishedRooms: rawRooms.filter((room) => room.published).length,
+        totalRooms: allRooms.length,
+        visibleRooms: rawRooms.length,
+        publishedRooms: allRooms.filter((room) => room.published).length,
+        availableRooms: allRooms.filter((room) => room.availability === "Available").length,
         studentCount: rawStudents.length,
         pendingRequests: requests.filter((request) => request.status === "Pending").length,
       },
@@ -705,9 +790,9 @@ app.post(
     const update = {};
     if (req.body.availability) update.availability = req.body.availability;
     if (req.body.published !== undefined) update.published = req.body.published === "true";
-    const room = await Room.findByIdAndUpdate(req.params.id, update, { runValidators: true });
+    const room = await Room.findByIdAndUpdate(req.params.id, update, { runValidators: true, new: true });
     if (!room) return next();
-    res.redirect("/admin");
+    res.redirect(req.get("Referrer") || "/admin");
   })
 );
 
@@ -727,10 +812,13 @@ function roomPayload(body) {
     food: body.food,
     foodDetails: body.foodDetails || "",
     facilities: normalizeList(body.facilities),
+    nearbyPlaces: normalizeList(body.nearbyPlaces),
     rules: normalizeList(body.rules),
     utilities: body.utilities || "",
     availability: body.availability,
+    ownerName: body.ownerName || "",
     ownerContact: body.ownerContact,
+    ownerAddress: body.ownerAddress || "",
     published: body.published === "on",
     videoUrl: body.videoUrl || "",
     photos: normalizeList(body.photos).length
@@ -747,10 +835,13 @@ app.post(
   requireRole("admin"),
   asyncHandler(async (req, res) => {
     const room = req.body.room || {};
-    if (!room.title || !room.area || !room.landmark || !room.rent || !room.deposit || !room.roomType || !room.category || !room.food || !room.availability || !room.ownerContact) {
+    if (!room.title || !room.area || !room.landmark || !room.rent || !room.deposit || !room.roomType || !room.category || !room.food || !room.availability || !room.ownerName || !room.ownerContact || !room.ownerAddress) {
       return res.status(400).render("rooms/form", { room, action: "/admin/rooms", title: "Add Listing", error: "Please fill all required admin listing fields." });
     }
-    await Room.create(roomPayload(room));
+    const createdRoom = await Room.create(roomPayload(room));
+    appendListingToSheet(createdRoom).catch((error) => {
+      console.error("Failed to save listing to Google Sheets:", error.message);
+    });
     res.redirect("/admin");
   })
 );
@@ -770,6 +861,9 @@ app.put(
   requireRole("admin"),
   asyncHandler(async (req, res, next) => {
     const room = req.body.room || {};
+    if (!room.title || !room.area || !room.landmark || !room.rent || !room.deposit || !room.roomType || !room.category || !room.food || !room.availability || !room.ownerName || !room.ownerContact || !room.ownerAddress) {
+      return res.status(400).render("rooms/form", { room, action: `/admin/rooms/${req.params.id}?_method=put`, title: "Edit Listing", error: "Please fill all required admin listing fields." });
+    }
     const updated = await Room.findByIdAndUpdate(req.params.id, roomPayload(room), { runValidators: true });
     if (!updated) return next();
     res.redirect("/admin");
