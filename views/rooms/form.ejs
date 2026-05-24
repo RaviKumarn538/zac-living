@@ -72,8 +72,8 @@
       </div>
     </div>
 
-    <label for="photos">Multiple HD photo URLs, one per line</label>
-    <textarea id="photos" name="room[photos]" rows="4"><%= room.photos ? room.photos.join("\n") : "" %></textarea>
+    <label for="photos">Multiple HD photo URLs</label>
+    <textarea id="photos" name="room[photos]" rows="4" placeholder="Paste photo links one per line, or comma separated"><%= room.photos ? room.photos.join("\n") : "" %></textarea>
 
     <label for="videoUrl">Video tour/vlog link</label>
     <input id="videoUrl" name="room[videoUrl]" value="<%= room.videoUrl || '' %>">

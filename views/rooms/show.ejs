@@ -1,23 +1,18 @@
 <% layout('/layouts/boilerplate') -%>
 
-<section class="container room-detail-page max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-  <div class="detail-gallery">
-    <div class="gallery-main">
-      <img src="<%= room.photos[0] %>" alt="<%= room.title %>">
-      <% if (room.videoUrl) { %>
-        <a href="<%= room.videoUrl %>" target="_blank" rel="noopener" class="gallery-video-overlay">
-          <i class="fa-solid fa-circle-play"></i>
-          <span>Watch Video Tour</span>
-        </a>
-      <% } %>
-    </div>
-    <% if (room.photos.length > 1) { %>
-      <div class="gallery-scroll" aria-label="Room photos">
-        <% room.photos.slice(1).forEach((photo, index) => { %>
-          <img src="<%= photo %>" alt="<%= room.title %> photo <%= index + 2 %>">
-        <% }) %>
+<section class="container room-detail-page prao-detail-layout max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+  <div class="product-gallery" aria-label="Room photos">
+    <% room.photos.forEach((photo, index) => { %>
+      <div class="product-gallery-tile <%= index === 0 ? 'featured' : '' %>">
+        <img src="<%= photo %>" alt="<%= room.title %> photo <%= index + 1 %>">
+        <% if (index === 0 && room.videoUrl) { %>
+          <a href="<%= room.videoUrl %>" target="_blank" rel="noopener" class="gallery-video-overlay">
+            <i class="fa-solid fa-circle-play"></i>
+            <span>Watch Video Tour</span>
+          </a>
+        <% } %>
       </div>
-    <% } %>
+    <% }) %>
   </div>
 
   <div class="detail-card min-w-0 room-detail-card">

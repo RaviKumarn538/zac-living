@@ -254,6 +254,13 @@ function normalizeList(value) {
   return list.flatMap((item) => String(item).split("\n")).map((item) => item.trim()).filter(Boolean);
 }
 
+function normalizeUrls(value) {
+  if (!value) return [];
+  const source = Array.isArray(value) ? value.join("\n") : String(value);
+  const matches = source.match(/https?:\/\/[^\s,]+/g) || [];
+  return [...new Set(matches.map((url) => url.trim()).filter(Boolean))];
+}
+
 function budgetMax(range) {
   const matches = String(range || "").match(/\d+/g);
   return matches ? Number(matches[matches.length - 1]) : 0;
@@ -295,10 +302,14 @@ function decorateRooms(roomList, user, query = {}) {
     })
     .map((room) => {
       const favoriteIds = user && user.favorites ? user.favorites.map((favorite) => String(favorite._id || favorite)) : [];
+      const payload = sanitizeRoomForViewer(room, user);
+      const photoUrls = normalizeUrls(payload.photos);
+      const photos = photoUrls.length ? photoUrls : payload.photos;
       return {
-        ...sanitizeRoomForViewer(room, user),
+        ...payload,
+        photos,
         id: String(room._id),
-        photo: room.photos[0],
+        photo: photos[0],
         match: calculateMatch(room, user && user.role === "student" ? user : {}),
         isFavorite: favoriteIds.includes(String(room._id)),
       };
@@ -821,8 +832,8 @@ function roomPayload(body) {
     ownerAddress: body.ownerAddress || "",
     published: body.published === "on",
     videoUrl: body.videoUrl || "",
-    photos: normalizeList(body.photos).length
-      ? normalizeList(body.photos)
+    photos: normalizeUrls(body.photos).length
+      ? normalizeUrls(body.photos)
       : ["https://images.unsplash.com/photo-1560185127-6ed189bf02f4?auto=format&fit=crop&w=1200&q=80"],
     safetyNotes: body.safetyNotes || "",
     distanceNotes: body.distanceNotes || "",
