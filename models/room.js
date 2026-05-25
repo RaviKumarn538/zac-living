@@ -44,4 +44,11 @@ const roomSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+roomSchema.index({ published: 1, createdAt: -1 });
+roomSchema.index({ published: 1, rent: 1 });
+roomSchema.index({ published: 1, category: 1, food: 1, roomType: 1 });
+roomSchema.index({ owner: 1, createdAt: -1 });
+roomSchema.index({ submissionSource: 1, published: 1, createdAt: -1 });
+roomSchema.index({ title: "text", area: "text", landmark: "text", description: "text" });
+
 module.exports = mongoose.model("Room", roomSchema);

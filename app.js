@@ -91,6 +91,10 @@ const foodOptions = ["Yes", "No"];
 const availabilityOptions = ["Available", "Few beds left", "Full"];
 const inquiryStatuses = ["Pending", "Contacted", "Visit Scheduled", "Closed"];
 const auditStatuses = ["Admin Added", "Pending Zac Audit", "Zac Verified", "Needs Owner Follow-up", "Rejected"];
+const ROOM_CACHE_TTL_MS = Number(process.env.ROOM_CACHE_TTL_MS || 30000);
+const AI_FAILURE_COOLDOWN_MS = Number(process.env.AI_FAILURE_COOLDOWN_MS || 300000);
+const publishedRoomCache = { expiresAt: 0, rooms: [] };
+const aiCircuit = { disabledUntil: 0 };
 const preferenceSteps = [
   {
     field: "occupation",
@@ -288,6 +292,55 @@ function normalizeUrls(value) {
   return [...new Set(matches.map((url) => url.trim()).filter(Boolean))];
 }
 
+function normalizeSearchText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function roomToObject(room) {
+  return room && typeof room.toObject === "function" ? room.toObject() : { ...room };
+}
+
+function roomId(room) {
+  return String(room._id || room.id || "");
+}
+
+function objectIdToString(value) {
+  return String(value?._id || value || "");
+}
+
+function roomSearchText(room) {
+  return normalizeSearchText([
+    room.title,
+    room.area,
+    room.landmark,
+    room.roomType,
+    room.category,
+    room.food,
+    room.description,
+    room.foodDetails,
+    room.utilities,
+    room.safetyNotes,
+    room.distanceNotes,
+    ...(room.facilities || []),
+    ...(room.nearbyPlaces || []),
+    ...(room.rules || []),
+  ].join(" "));
+}
+
+function invalidateRoomCache() {
+  publishedRoomCache.expiresAt = 0;
+  publishedRoomCache.rooms = [];
+}
+
+async function getPublishedRooms() {
+  const now = Date.now();
+  if (publishedRoomCache.expiresAt > now) return publishedRoomCache.rooms;
+  const rooms = await Room.find({ published: true }).sort({ createdAt: -1 }).lean();
+  publishedRoomCache.rooms = rooms.map((room) => ({ ...room, _searchText: roomSearchText(room) }));
+  publishedRoomCache.expiresAt = now + ROOM_CACHE_TTL_MS;
+  return publishedRoomCache.rooms;
+}
+
 function isCloudinaryConfigured() {
   return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
 }
@@ -315,7 +368,11 @@ async function uploadListingPhotos(files = []) {
 }
 
 function isAiConfigured() {
-  return AI_PROVIDER === "gemini" ? Boolean(GEMINI_API_KEY) : Boolean(AI_API_KEY);
+  return Date.now() >= aiCircuit.disabledUntil && (AI_PROVIDER === "gemini" ? Boolean(GEMINI_API_KEY) : Boolean(AI_API_KEY));
+}
+
+function markAiFailure() {
+  aiCircuit.disabledUntil = Date.now() + AI_FAILURE_COOLDOWN_MS;
 }
 
 function extractJsonObject(text) {
@@ -446,18 +503,7 @@ function parseRoomIntent(query = "") {
 
 function scoreRoomForIntent(room, intent = {}, query = "") {
   const text = String(query || "").toLowerCase();
-  const haystack = [
-    room.title,
-    room.area,
-    room.landmark,
-    room.roomType,
-    room.category,
-    room.food,
-    room.description,
-    ...(room.facilities || []),
-    ...(room.nearbyPlaces || []),
-    ...(room.rules || []),
-  ].join(" ").toLowerCase();
+  const haystack = room._searchText || roomSearchText(room);
   let score = 0;
   const reasons = [];
 
@@ -497,8 +543,10 @@ function budgetMax(range) {
 function calculateMatch(room, student = {}) {
   let score = 0;
   const maxBudget = budgetMax(student.budgetRange);
-  if (maxBudget && room.rent <= maxBudget) score += 30;
-  if (student.preferredArea && room.area.toLowerCase().includes(student.preferredArea.toLowerCase())) score += 25;
+  const area = normalizeSearchText(room.area);
+  const preferredArea = normalizeSearchText(student.preferredArea);
+  if (maxBudget && Number(room.rent) <= maxBudget) score += 30;
+  if (preferredArea && area.includes(preferredArea)) score += 25;
   if (student.roomType && (student.roomType === "Any" || student.roomType === room.roomType)) score += 20;
   if (student.gender && (student.gender === room.category || student.gender === "Other")) score += 15;
   if (student.foodRequired && student.foodRequired === room.food) score += 10;
@@ -506,9 +554,9 @@ function calculateMatch(room, student = {}) {
 }
 
 function sanitizeRoomForViewer(room, user) {
-  const payload = room.toObject();
+  const payload = roomToObject(room);
   const isAdmin = Boolean(user && user.role === "admin");
-  const isOwner = Boolean(user && user.role === "owner" && room.owner && String(room.owner) === String(user._id));
+  const isOwner = Boolean(user && user.role === "owner" && room.owner && objectIdToString(room.owner) === String(user._id));
   if (!isAdmin && !isOwner) {
     delete payload.ownerName;
     delete payload.ownerContact;
@@ -518,29 +566,31 @@ function sanitizeRoomForViewer(room, user) {
 }
 
 function decorateRooms(roomList, user, query = {}) {
+  const favoriteIds = new Set(user && user.favorites ? user.favorites.map((favorite) => objectIdToString(favorite)) : []);
+  const normalizedArea = normalizeSearchText(query.area);
+  const maxBudget = Number(query.budget || 0);
   return roomList
     .filter((room) => {
-      const maxBudget = Number(query.budget || 0);
+      const area = normalizeSearchText(room.area);
       return (
-        (!query.area || room.area.toLowerCase().includes(query.area.toLowerCase())) &&
-        (!maxBudget || room.rent <= maxBudget) &&
+        (!normalizedArea || area.includes(normalizedArea) || (room._searchText || roomSearchText(room)).includes(normalizedArea)) &&
+        (!maxBudget || Number(room.rent) <= maxBudget) &&
         (!query.roomType || query.roomType === "Any" || room.roomType === query.roomType) &&
         (!query.category || room.category === query.category) &&
         (!query.food || room.food === query.food)
       );
     })
     .map((room) => {
-      const favoriteIds = user && user.favorites ? user.favorites.map((favorite) => String(favorite._id || favorite)) : [];
       const payload = sanitizeRoomForViewer(room, user);
       const photoUrls = normalizeUrls(payload.photos);
       const photos = photoUrls.length ? photoUrls : payload.photos;
       return {
         ...payload,
         photos,
-        id: String(room._id),
+        id: roomId(room),
         photo: photos[0],
         match: calculateMatch(room, user && user.role === "student" ? user : {}),
-        isFavorite: favoriteIds.includes(String(room._id)),
+        isFavorite: favoriteIds.has(roomId(room)),
       };
     })
     .sort((a, b) => b.match.score - a.match.score);
@@ -592,6 +642,7 @@ async function seedDatabase() {
 
   if ((await Room.countDocuments()) === 0) {
     await Room.insertMany(demoRooms);
+    invalidateRoomCache();
   }
 
   const demoUsers = await User.find({ email: { $in: [ADMIN_EMAIL, "student@zac.living"] } });
@@ -620,9 +671,9 @@ app.use(
 app.get(
   "/",
   asyncHandler(async (req, res) => {
-    const rawRooms = await Room.find({ published: true }).sort({ createdAt: -1 });
+    const rawRooms = await getPublishedRooms();
     const rooms = decorateRooms(rawRooms, req.currentUser);
-    const featuredRooms = [...rooms].sort(() => Math.random() - 0.5).slice(0, 8);
+    const featuredRooms = rooms.slice(0, 8);
 
     res.render("home", {
       query: {},
@@ -672,6 +723,7 @@ app.post(
       return res.json({ ok: true, mode: "ai", draft: { ...fallback, ...(draft || {}) } });
     } catch (error) {
       console.error("AI listing helper failed:", error.message);
+      markAiFailure();
       return res.json({ ok: true, mode: "fallback", draft: fallback });
     }
   })
@@ -683,7 +735,7 @@ app.post(
     const query = String(req.body.query || "").trim().slice(0, 240);
     if (!query) return res.status(400).json({ ok: false, error: "Search query is required." });
 
-    const rooms = await Room.find({ published: true }).sort({ createdAt: -1 }).limit(60);
+    const rooms = (await getPublishedRooms()).slice(0, 60);
     let intent = parseRoomIntent(query);
     let aiUsed = false;
 
@@ -700,6 +752,7 @@ app.post(
         aiUsed = Boolean(aiIntent);
       } catch (error) {
         console.error("AI room intent failed:", error.message);
+        markAiFailure();
       }
     }
 
@@ -736,7 +789,7 @@ app.post(
     const message = String(req.body.message || "").trim().slice(0, 500);
     if (!message) return res.status(400).json({ ok: false, error: "Message is required." });
 
-    const rooms = await Room.find({ published: true }).sort({ createdAt: -1 }).limit(40);
+    const rooms = (await getPublishedRooms()).slice(0, 40);
     const roomFacts = rooms.map((room) => ({
       id: String(room._id),
       title: room.title,
@@ -776,6 +829,7 @@ app.post(
       });
     } catch (error) {
       console.error("AI site helper failed:", error.message);
+      markAiFailure();
       res.json({ ok: true, mode: "fallback", ...fallback });
     }
   })
@@ -879,6 +933,7 @@ app.post(
       auditStatus: "Pending Zac Audit",
       submissionSource: "Partner Submission",
     });
+    invalidateRoomCache();
 
     res.redirect("/owner/dashboard");
   })
@@ -887,7 +942,7 @@ app.post(
 app.get(
   "/rooms",
   asyncHandler(async (req, res) => {
-    const rooms = await Room.find({ published: true }).sort({ createdAt: -1 });
+    const rooms = await getPublishedRooms();
     let decoratedRooms = decorateRooms(rooms, req.currentUser, req.query);
     if (req.query.video) decoratedRooms = decoratedRooms.filter((room) => room.videoUrl);
     res.render("rooms/index", { rooms: decoratedRooms, query: req.query });
@@ -899,7 +954,7 @@ app.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const filter = req.currentUser.role === "admin" ? {} : { published: true };
-    const rawRooms = await Room.find(filter).sort({ createdAt: -1 });
+    const rawRooms = req.currentUser.role === "admin" ? await Room.find(filter).sort({ createdAt: -1 }).lean() : await getPublishedRooms();
     let rooms = decorateRooms(rawRooms, req.currentUser, req.query);
     if (req.query.video) rooms = rooms.filter((room) => room.videoUrl);
     res.render("rooms/all", { rooms, query: req.query });
@@ -911,7 +966,7 @@ app.get(
   asyncHandler(async (req, res, next) => {
     const filter = { _id: req.params.id };
     if (!req.currentUser || req.currentUser.role !== "admin") filter.published = true;
-    const room = await Room.findOne(filter);
+    const room = await Room.findOne(filter).lean();
     if (!room) return next();
     res.render("rooms/show", { room: decorateRooms([room], req.currentUser)[0] });
   })
@@ -1080,7 +1135,7 @@ app.get(
   "/owner/dashboard",
   requireRole("owner"),
   asyncHandler(async (req, res) => {
-    const rooms = await Room.find({ owner: req.currentUser._id }).sort({ createdAt: -1 });
+    const rooms = await Room.find({ owner: req.currentUser._id }).sort({ createdAt: -1 }).lean();
     res.render("dashboards/owner", {
       rooms: decorateRooms(rooms, req.currentUser),
       owner: req.currentUser,
@@ -1092,9 +1147,9 @@ app.get(
   "/owner/rooms/:id/edit",
   requireRole("owner"),
   asyncHandler(async (req, res, next) => {
-    const room = await Room.findOne({ _id: req.params.id, owner: req.currentUser._id });
+    const room = await Room.findOne({ _id: req.params.id, owner: req.currentUser._id }).lean();
     if (!room) return next();
-    res.render("rooms/owner_edit", { room: room.toObject(), error: null });
+    res.render("rooms/owner_edit", { room, error: null });
   })
 );
 
@@ -1133,6 +1188,7 @@ app.put(
     payload.auditStatus = "Needs Owner Follow-up";
     payload.submissionSource = "Partner Submission";
     await Room.findByIdAndUpdate(existing._id, payload, { runValidators: true });
+    invalidateRoomCache();
     res.redirect("/owner/dashboard");
   })
 );
@@ -1141,22 +1197,22 @@ app.get(
   "/student/dashboard",
   requireRole("student"),
   asyncHandler(async (req, res) => {
-    const rooms = await Room.find({ published: true }).sort({ createdAt: -1 });
+    const rooms = await getPublishedRooms();
     const savedIds = req.currentUser.favorites.map((room) => room._id);
-    const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true });
-    const requests = await VisitRequest.find({ student: req.currentUser._id }).populate("room").sort({ createdAt: -1 });
+    const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true }).lean();
+    const requests = await VisitRequest.find({ student: req.currentUser._id }).populate("room").sort({ createdAt: -1 }).lean();
 
     res.render("dashboards/student", {
       user: req.currentUser,
       recommendedRooms: decorateRooms(rooms, req.currentUser).slice(0, 6),
       savedRooms: decorateRooms(savedRoomsRaw, req.currentUser),
       requests: requests.map((request) => ({
-        ...request.toObject(),
-        id: String(request._id),
+        ...request,
+        id: roomId(request),
         room: request.room
           ? {
-              ...request.room.toObject(),
-              id: String(request.room._id),
+              ...request.room,
+              id: roomId(request.room),
               photo: request.room.photos[0],
             }
           : null,
@@ -1170,7 +1226,7 @@ app.post(
   "/rooms/:id/favorite",
   requireRole("student"),
   asyncHandler(async (req, res, next) => {
-    const room = await Room.findOne({ _id: req.params.id, published: true });
+    const room = await Room.findOne({ _id: req.params.id, published: true }).select("_id").lean();
     if (!room) return next();
 
     const favoriteIds = req.currentUser.favorites.map((favorite) => String(favorite._id || favorite));
@@ -1188,7 +1244,7 @@ app.post(
   "/rooms/:id/visit",
   requireRole("student"),
   asyncHandler(async (req, res, next) => {
-    const room = await Room.findOne({ _id: req.params.id, published: true });
+    const room = await Room.findOne({ _id: req.params.id, published: true }).select("_id").lean();
     if (!room) return next();
 
     await VisitRequest.updateOne(
@@ -1218,7 +1274,7 @@ app.get(
   requireRole("student"),
   asyncHandler(async (req, res) => {
     const savedIds = req.currentUser.favorites.map((room) => room._id);
-    const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true });
+    const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true }).lean();
     res.render("profile", { user: req.currentUser, savedRooms: decorateRooms(savedRoomsRaw, req.currentUser), error: null });
   })
 );
@@ -1233,7 +1289,7 @@ app.post(
     };
     if (!isValidPersonName(profileForm.name) || !isValidMobileNumber(profileForm.phone)) {
       const savedIds = req.currentUser.favorites.map((room) => room._id);
-      const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true });
+      const savedRoomsRaw = await Room.find({ _id: { $in: savedIds }, published: true }).lean();
       return res.status(400).render("profile", {
         user: { ...req.currentUser.toObject(), ...profileForm },
         savedRooms: decorateRooms(savedRoomsRaw, req.currentUser),
@@ -1292,19 +1348,20 @@ app.get(
     }
 
     const [rawRooms, rawOwnerSubmissions, rawStudents, requests] = await Promise.all([
-      Room.find(roomFilter).sort({ createdAt: -1 }),
-      Room.find({ submissionSource: "Partner Submission", published: false }).sort({ createdAt: -1 }),
-      User.find({ role: "student" }).sort({ createdAt: -1 }),
-      VisitRequest.find({}).populate("room").populate("student").sort({ createdAt: -1 }),
+      Room.find(roomFilter).sort({ createdAt: -1 }).lean(),
+      Room.find({ submissionSource: "Partner Submission", published: false }).sort({ createdAt: -1 }).lean(),
+      User.find({ role: "student" }).sort({ createdAt: -1 }).lean(),
+      VisitRequest.find({}).populate("room").populate("student").sort({ createdAt: -1 }).lean(),
     ]);
-    const allRooms = await Room.find({});
+    const allRooms = await Room.find({}).lean();
+    const publishedRooms = allRooms.filter((room) => room.published);
     const rooms = decorateRooms(rawRooms, req.currentUser);
     const ownerSubmissions = decorateRooms(rawOwnerSubmissions, req.currentUser);
     const students = rawStudents.map((student) => {
-      const bestMatch = decorateRooms(allRooms.filter((room) => room.published), student)[0];
+      const bestMatch = decorateRooms(publishedRooms, student)[0];
       return {
-        ...student.toObject(),
-        id: String(student._id),
+        ...student,
+        id: roomId(student),
         bestMatch,
       };
     });
@@ -1318,17 +1375,17 @@ app.get(
       stats: {
         totalRooms: allRooms.length,
         visibleRooms: rawRooms.length,
-        publishedRooms: allRooms.filter((room) => room.published).length,
+        publishedRooms: publishedRooms.length,
         availableRooms: allRooms.filter((room) => room.availability === "Available").length,
         studentCount: rawStudents.length,
         pendingRequests: requests.filter((request) => request.status === "Pending").length,
         pendingAuditRooms: allRooms.filter((room) => room.auditStatus === "Pending Zac Audit").length,
       },
       requests: requests.map((request) => ({
-        ...request.toObject(),
-        id: String(request._id),
-        room: request.room ? { ...request.room.toObject(), id: String(request.room._id) } : null,
-        student: request.student ? { ...request.student.toObject(), id: String(request.student._id) } : null,
+        ...request,
+        id: roomId(request),
+        room: request.room ? { ...request.room, id: roomId(request.room) } : null,
+        student: request.student ? { ...request.student, id: roomId(request.student) } : null,
       })),
     });
   })
@@ -1346,6 +1403,7 @@ app.post(
     if (update.published === false && !req.body.auditStatus) update.auditStatus = "Needs Owner Follow-up";
     const room = await Room.findByIdAndUpdate(req.params.id, update, { runValidators: true, new: true });
     if (!room) return next();
+    invalidateRoomCache();
     res.redirect(req.get("Referrer") || "/admin");
   })
 );
@@ -1398,6 +1456,7 @@ app.post(
     appendListingToSheet(createdRoom).catch((error) => {
       console.error("Failed to save listing to Google Sheets:", error.message);
     });
+    invalidateRoomCache();
     res.redirect("/admin");
   })
 );
@@ -1406,9 +1465,9 @@ app.get(
   "/admin/rooms/:id/edit",
   requireRole("admin"),
   asyncHandler(async (req, res, next) => {
-    const room = await Room.findById(req.params.id);
+    const room = await Room.findById(req.params.id).lean();
     if (!room) return next();
-    res.render("rooms/form", { room: room.toObject(), action: `/admin/rooms/${room._id}?_method=put`, title: "Edit Listing", error: null });
+    res.render("rooms/form", { room, action: `/admin/rooms/${room._id}?_method=put`, title: "Edit Listing", error: null });
   })
 );
 
@@ -1424,6 +1483,7 @@ app.put(
     if (payload.published) payload.auditStatus = "Zac Verified";
     const updated = await Room.findByIdAndUpdate(req.params.id, payload, { runValidators: true });
     if (!updated) return next();
+    invalidateRoomCache();
     res.redirect("/admin");
   })
 );
@@ -1435,6 +1495,7 @@ app.delete(
     await Room.findByIdAndDelete(req.params.id);
     await VisitRequest.deleteMany({ room: req.params.id });
     await User.updateMany({}, { $pull: { favorites: req.params.id } });
+    invalidateRoomCache();
     res.redirect("/admin");
   })
 );
@@ -1460,7 +1521,7 @@ app.use((err, req, res, next) => {
 
 async function connectDatabase() {
   await mongoose.connect(MONGO_URL, mongoOptions);
-  await User.syncIndexes();
+  await Promise.all([User.createIndexes(), Room.createIndexes(), VisitRequest.createIndexes()]);
   await seedDatabase();
   console.log("MongoDB connected and Zac.Living seed data is ready.");
 }
